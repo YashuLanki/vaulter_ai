@@ -325,6 +325,58 @@ Always use the most specific tool available for the question."""
         except Exception as e:
             return f"Stats failed: {e}"
 
+    @mcp.tool()
+    def open_property_files(property_name: str) -> str:
+        """
+        Open File Explorer to show all actual documents and files for a property.
+        Use this when the user wants to:
+        - see, browse, open, or download files for a property
+        - access the actual PDF, Word, Excel, or PowerPoint documents
+        - view attachments or documents related to a property
+        - click on or open files for a property
+        Args:
+            property_name: Property name (e.g. "Mesa Del Sol", "Magic Ranch 10", "Forney")
+        """
+        import subprocess
+        from config import PROCESSED_DIR
+        try:
+            # Search all state subfolders for a matching property folder
+            folder = None
+            matches = []
+
+            if PROCESSED_DIR.exists():
+                for state_dir in PROCESSED_DIR.iterdir():
+                    if not state_dir.is_dir():
+                        continue
+                    for prop_dir in state_dir.iterdir():
+                        if not prop_dir.is_dir():
+                            continue
+                        if property_name.lower() in prop_dir.name.lower():
+                            matches.append(prop_dir)
+
+            if len(matches) == 1:
+                folder = matches[0]
+            elif len(matches) > 1:
+                # Pick the best match (exact name match first)
+                exact = [m for m in matches if m.name.lower() == property_name.lower()]
+                folder = exact[0] if exact else matches[0]
+
+            if folder and folder.exists():
+                subprocess.Popen(f'explorer "{folder}"')
+                files = [f for f in folder.iterdir() if f.is_file()]
+                if files:
+                    file_list = "\n".join(f"  - {f.name}" for f in sorted(files))
+                    return f"Opened File Explorer to {folder.name} folder.\n\nFiles available:\n{file_list}"
+                else:
+                    return f"Opened File Explorer to {folder.name} folder — no files found yet."
+            else:
+                # Fall back to opening the whole processed folder
+                subprocess.Popen(f'explorer "{PROCESSED_DIR}"')
+                return f"No folder found for '{property_name}'. Opened the processed documents folder instead."
+
+        except Exception as e:
+            return f"Could not open folder: {e}"
+
     return mcp
 
 
