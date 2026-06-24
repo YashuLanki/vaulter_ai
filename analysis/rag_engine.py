@@ -179,28 +179,35 @@ def free_search(query: str, n: int = MAX_CONTEXT_CHUNKS) -> list[dict]:
     return _query_with_filter(collection, query, where=None, n=n)
 
 
-# Known properties for direct lookup detection
-_KNOWN_PROPERTIES = [
-    "Magic Ranch 10", "Magic Ranch 50", "Magic Ranch 80",
-    "Rita Ranch", "Mesquite Trails", "Picacho Crossing",
-    "Heartland 53", "Heartland 81", "Heartland 125", "Heartland 255",
-    "Walker Butte", "Airport & Ocotillo", "Heritage", "Lucky Hunt",
-    "Marabella", "Rodeo Ranch", "Mountain View Ranch", "Hidden Canyon",
-    "El Mirage", "Kirby Hughes", "Eloy 310",
-    "Cabazon", "Banning", "Affresco East", "Affresco West",
-    "Apple Valley", "Auburn & Verbena", "Fuchsia & Dos Palmas",
-    "Hook & Cobalt", "Hopland & Cordova", "Kemper Campbell", "South 20E",
-    "Antelope & Ellis", "Griffin Ranch", "Wilson & Florida",
-    "Rosamond", "Calhoun 29", "Calhoun 30", "Bell Mountain",
-    "Panther & Crippin", "Silverlakes",
-    "Mesa Del Sol", "Los Senderos",
-    "Mead", "Long Branch", "Pacific & Pinson", "Horseshoe Bay", "Triad",
-]
+# Property names loaded lazily from the live Project Master on first use.
+# Falls back to an empty list if no Project Master file is present.
+_KNOWN_PROPERTIES: list[str] | None = None
+
+def _get_known_properties() -> list[str]:
+    """Load property names from the Project Master on first call, then cache."""
+    global _KNOWN_PROPERTIES
+    if _KNOWN_PROPERTIES is not None:
+        return _KNOWN_PROPERTIES
+    try:
+        # Try the full project-master-aware version first
+        from pipeline.property_scraper import load_properties
+        props, _ = load_properties()
+        _KNOWN_PROPERTIES = [p["name"] for p in props]
+    except ImportError:
+        try:
+            # Fall back to the PROPERTIES list in older versions of property_scraper
+            from pipeline.property_scraper import PROPERTIES
+            _KNOWN_PROPERTIES = [p["name"] for p in PROPERTIES]
+        except Exception:
+            _KNOWN_PROPERTIES = []
+    except Exception:
+        _KNOWN_PROPERTIES = []
+    return _KNOWN_PROPERTIES
 
 def _detect_property_name(query: str) -> str | None:
     """Return a known property name if mentioned in the query."""
     q = query.lower()
-    for prop in _KNOWN_PROPERTIES:
+    for prop in _get_known_properties():
         if prop.lower() in q:
             return prop
     return None

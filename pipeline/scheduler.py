@@ -13,7 +13,7 @@ Called by:  python main.py schedule
 
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime as _dt
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -103,7 +103,7 @@ def start_scheduler():
         next_run_time=_dt.now() + __import__('datetime').timedelta(seconds=30),
         replace_existing=True,
     )
-    log.info("Scheduled Outlook email — every 30 minutes")
+    log.info("Scheduled Outlook email — every 30 min")
 
     # ── Property intelligence — daily at 6:00 AM ─────────────────
     scheduler.add_job(

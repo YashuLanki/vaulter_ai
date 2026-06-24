@@ -238,69 +238,8 @@ def cmd_properties():
 
 
 def cmd_schedule():
-    import time
-    from apscheduler.schedulers.blocking import BlockingScheduler
-    from apscheduler.triggers.cron import CronTrigger
-    from apscheduler.triggers.interval import IntervalTrigger
-    from datetime import datetime as _dt
-    from config import WEB_SOURCES
-
-    scheduler = BlockingScheduler(timezone="America/Phoenix")
-
-    for source in WEB_SOURCES:
-        def _scrape(name=source["name"]):
-            try:
-                from pipeline.web_scraper import scrape_all
-                scrape_all(target_name=name)
-            except Exception as ex:
-                log.warning(f"Scheduled scrape failed ({name}): {ex}")
-        scheduler.add_job(
-            _scrape,
-            trigger=IntervalTrigger(hours=source["frequency_hours"]),
-            id=f"scrape_{source['name'].replace(' ', '_')}",
-            next_run_time=_dt.now() + __import__('datetime').timedelta(seconds=30),
-            replace_existing=True,
-        )
-
-    def _email():
-        try:
-            from pipeline.email_reader import process_all_emails
-            process_all_emails()
-        except Exception as ex:
-            log.warning(f"Scheduled email check failed: {ex}")
-    scheduler.add_job(
-        _email,
-        trigger=IntervalTrigger(minutes=30),
-        id="check_email",
-        next_run_time=_dt.now() + __import__('datetime').timedelta(seconds=30),
-        replace_existing=True,
-    )
-
-    def _property_scrape():
-        try:
-            from pipeline.property_scraper import scrape_all_properties
-            scrape_all_properties()
-        except Exception as ex:
-            log.warning(f"Scheduled property scrape failed: {ex}")
-    scheduler.add_job(
-        _property_scrape,
-        trigger=CronTrigger(hour=6, minute=0),
-        id="property_scrape",
-        replace_existing=True,
-    )
-
-    log.info("=" * 60)
-    log.info("  Vaulter AI — Background Scheduler")
-    log.info("  Web scrapes : per source frequency (6–24h)")
-    log.info("  Email check : every 30 minutes")
-    log.info("  Property intel : daily at 6:00 AM Phoenix time")
-    log.info("  Press Ctrl+C to stop.")
-    log.info("=" * 60)
-
-    try:
-        scheduler.start()
-    except KeyboardInterrupt:
-        log.info("Scheduler stopped.")
+    from pipeline.scheduler import start_scheduler
+    start_scheduler()
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -321,8 +260,8 @@ def cmd_mcp(port: int = None):
 
     log.info("=" * 60)
     log.info("  Vaulter AI — MCP Server")
-    log.info(f"  Port       : {run_port}")
-    log.info(f"  Auth       : {'enabled' if MCP_API_KEY else 'DISABLED — set MCP_API_KEY in .env'}")
+    log.info(f"  Transport  : stdio (Claude Desktop launches this process directly)")
+    log.info(f"  Auth       : {'MCP_API_KEY set' if MCP_API_KEY else 'DISABLED — set MCP_API_KEY in .env'}")
     log.info("  Connect via claude.ai → Settings → Connectors")
     log.info("  Press Ctrl+C to stop.")
     log.info("=" * 60)

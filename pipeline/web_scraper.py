@@ -16,7 +16,6 @@ import csv
 import hashlib
 import json
 import logging
-import struct
 import sys
 import time
 from datetime import datetime
@@ -29,7 +28,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
     LOG_DIR, RAW_WEB_DIR, DATA_DIR,
     CHROMA_DIR, CHROMA_COLLECTION_NAME,
-    CHUNK_SIZE, CHUNK_OVERLAP,
     WEB_SOURCES, LOG_LEVEL,
 )
 from pipeline.property_matcher import match_properties, matched_property_tags, format_matched_properties
@@ -137,23 +135,13 @@ def content_hash(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 def chunk_text(text: str) -> list[str]:
-    chunks, start = [], 0
-    while start < len(text):
-        chunks.append(text[start:start + CHUNK_SIZE])
-        start += CHUNK_SIZE - CHUNK_OVERLAP
-    return chunks
+    from ingestion.chunker import chunk_text as _chunk_text
+    return _chunk_text(text)
 
 def simple_embed(text: str) -> list[float]:
-    """Lightweight deterministic embedding — swap for a real model in production."""
-    seed = hashlib.sha256(text.encode()).digest()
-    floats = []
-    for i in range(384):
-        b = seed[(i * 2) % len(seed):(i * 2) % len(seed) + 4]
-        if len(b) < 4:
-            b = b + seed[:4 - len(b)]
-        val = struct.unpack("f", b)[0]
-        floats.append(max(-1.0, min(1.0, val / 1e10)))
-    return floats
+    from ingestion.embedder import LocalHashEmbedding
+    result = LocalHashEmbedding()([text])[0]
+    return result.tolist() if hasattr(result, 'tolist') else list(result)
 
 
 # ─── Fetch & Extract ──────────────────────────────────────────────

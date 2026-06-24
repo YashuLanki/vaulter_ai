@@ -49,10 +49,27 @@ log = logging.getLogger("vaulter.watcher")
 _PROPERTIES:      list[dict] | None = None
 _SOLD_PROPERTIES: list[dict] | None = None
 
-# Valid state folder names (case-insensitive match)
-VALID_STATES = {
-    "arizona", "california", "new mexico", "colorado", "texas"
-}
+# Valid state folder names — derived dynamically from the property list on first use.
+# Falls back to the known set if the Project Master file isn't present yet.
+_VALID_STATES_CACHE: set | None = None
+
+def _get_valid_states() -> set:
+    """Return the set of valid state folder names from the live property list."""
+    global _VALID_STATES_CACHE
+    if _VALID_STATES_CACHE is not None:
+        return _VALID_STATES_CACHE
+    try:
+        from pipeline.property_scraper import load_all_properties
+        active, sold = load_all_properties()
+        states = {p["state"].lower() for p in active + sold if p.get("state")}
+        if states:
+            _VALID_STATES_CACHE = states
+            return _VALID_STATES_CACHE
+    except Exception:
+        pass
+    # Fallback if Project Master not yet available
+    _VALID_STATES_CACHE = {"arizona", "california", "new mexico", "colorado", "texas"}
+    return _VALID_STATES_CACHE
 
 
 def _load_properties() -> tuple[list[dict], list[dict]]:
@@ -107,8 +124,8 @@ def _resolve_from_path(path: Path) -> dict:
     folder_property = remaining[1]   # e.g. "Magic Ranch 10"
 
     # Validate state
-    if folder_state.lower() not in VALID_STATES:
-        log.warning(f"  [WARN] Unrecognised state folder '{folder_state}' — expected one of: {', '.join(sorted(VALID_STATES))}")
+    if folder_state.lower() not in _get_valid_states():
+        log.warning(f"  [WARN] Unrecognised state folder '{folder_state}' — expected one of: {', '.join(sorted(_get_valid_states()))}")
         return _unknown()
 
     # Normalise state to lowercase_underscore for storage (matches existing convention)

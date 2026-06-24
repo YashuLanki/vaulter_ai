@@ -7,6 +7,15 @@ All system prompts and prompt-building functions live here.
 To tune Claude's behavior, only this file needs to change.
 """
 
+# NOTE: This module is not currently used by the MCP server architecture.
+# mcp_server.py returns raw context directly to Claude, which reasons over it.
+# Keep this file if you plan to build a non-Claude-Desktop interface (e.g. a
+# web dashboard or API) that needs Python to call Claude directly.
+# To re-activate: import and call these functions from mcp_server.py or a new
+# interface layer.
+#
+
+
 # ─── System Prompt ────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """You are a smart, helpful assistant for Vaulter AI, a real estate investment company. You work like a knowledgeable colleague — sharp, direct, and easy to talk to.

@@ -4,6 +4,15 @@ analysis/analyzer.py
 Vaulter AI Stage 3 — Claude Analysis Engine
 """
 
+# NOTE: This module is not currently used by the MCP server architecture.
+# mcp_server.py returns raw context directly to Claude, which reasons over it.
+# Keep this file if you plan to build a non-Claude-Desktop interface (e.g. a
+# web dashboard or API) that needs Python to call Claude directly.
+# To re-activate: import and call these functions from mcp_server.py or a new
+# interface layer.
+#
+
+
 import os
 import sys
 import json

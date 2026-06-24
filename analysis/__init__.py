@@ -1,34 +1,12 @@
 """
 analysis/__init__.py
 ---------------------
-Vaulter AI Stage 3 — Claude Analysis Layer
+Vaulter AI Stage 3 — Analysis Layer
 
-Public API — import these in the dashboard or anywhere else:
+The active analysis layer is analysis/rag_engine.py, which is called
+directly by mcp_server.py tools.
 
-    from analysis.analyzer import (
-        answer_question,
-        get_property_summary,
-        get_risk_scan,
-        get_market_summary,
-        get_email_highlights,
-        get_portfolio_overview,
-    )
+analysis/analyzer.py and analysis/prompts.py are archived — they contain
+a full Claude API call layer for building a non-Claude-Desktop interface
+(e.g. a web dashboard or API). See the NOTE at the top of each file.
 """
-
-from analysis.analyzer import (
-    answer_question,
-    get_property_summary,
-    get_risk_scan,
-    get_market_summary,
-    get_email_highlights,
-    get_portfolio_overview,
-)
-
-__all__ = [
-    "answer_question",
-    "get_property_summary",
-    "get_risk_scan",
-    "get_market_summary",
-    "get_email_highlights",
-    "get_portfolio_overview",
-]

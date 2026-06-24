@@ -8,7 +8,7 @@ Cross-platform: automatically detects Windows or Mac and sets the correct paths.
 To adapt this project to a new machine, only this file needs to be updated.
 
 Secrets (.env and outlook_token.json) are stored in:
-  Windows : C:/Users/YashuLanki/Vaulterup/confidentials/
+  Windows : C:/Users/<YourName>/Vaulter AI/confidentials/
   Mac     : <project_root>/confidentials/
 
 NEVER put real credentials directly in this file.
@@ -24,7 +24,7 @@ BASE_DIR = Path(__file__).parent
 
 # ─── Secrets Folder ───────────────────────────────────────────────
 if sys.platform == "win32":
-    SECRETS_DIR = Path(r"C:\Users\YashuLanki\Vaulter AI\confidentials")
+    SECRETS_DIR = Path(r"C:\Users") / os.environ.get("USERNAME", "YourName") / "Vaulter AI" / "confidentials"
 else:
     SECRETS_DIR = BASE_DIR / "confidentials"
 
@@ -65,8 +65,8 @@ def get_chunk_settings(page_count: int) -> tuple[int, int]:
 # ─── OCR Settings ─────────────────────────────────────────────────
 
 if sys.platform == "win32":
-    TESSERACT_PATH = r"C:\Users\YashuLanki\Packages\Tesseract-OCR\tesseract.exe"
-    POPPLER_PATH   = r"C:\Users\YashuLanki\Packages\poppler-26.02.0\Library\bin"
+    TESSERACT_PATH = str(Path(r"C:\Users") / os.environ.get("USERNAME", "YourName") / r"Packages\Tesseract-OCR\tesseract.exe")
+    POPPLER_PATH   = str(Path(r"C:\Users") / os.environ.get("USERNAME", "YourName") / r"Packages\poppler-26.02.0\Library\bin")
 else:
     TESSERACT_PATH = "/opt/homebrew/bin/tesseract"
     POPPLER_PATH   = "/opt/homebrew/bin"
@@ -77,7 +77,6 @@ CHROMA_COLLECTION_NAME = "vaulter_documents"
 
 # ─── Embedding ────────────────────────────────────────────────────
 
-EMBEDDING_MODE = "local"
 EMBEDDING_DIM  = 384
 
 # ══════════════════════════════════════════════════════════════════

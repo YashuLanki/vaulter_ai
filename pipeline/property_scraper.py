@@ -34,7 +34,6 @@ import csv
 import hashlib
 import json
 import logging
-import struct
 import sys
 import time
 from datetime import datetime
@@ -48,10 +47,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
     LOG_DIR, RAW_WEB_DIR, DATA_DIR,
     CHROMA_DIR, CHROMA_COLLECTION_NAME,
-    CHUNK_SIZE, CHUNK_OVERLAP, LOG_LEVEL,
+    LOG_LEVEL,
 )
 
-# ─── Logging ──────────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇ Logging ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
@@ -66,13 +65,13 @@ log = logging.getLogger(__name__)
 PROJECT_MASTER_DIR = DATA_DIR / "project_master"
 REGISTRY_FILE      = DATA_DIR / "property_scrape_registry.json"
 
-# ══════════════════════════════════════════════════════════════════
+# ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 # Built-in Fallback Property List
 # Extracted from Vaulter Project Master — exported June 15, 2026
-# ══════════════════════════════════════════════════════════════════
+# ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 
 BUILTIN_PROPERTIES = [
-    # ── Arizona ───────────────────────────────────────────────────
+    # ΓöÇΓöÇ Arizona ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     {"name": "Rita Ranch",                 "city": "Tucson",        "state": "Arizona",    "category": "Acquisition"},
     {"name": "Eloy 310 (Interlink 8/10)",  "city": "Eloy",          "state": "Arizona",    "category": "Pre-Plat"},
     {"name": "Kirby Hughes & Luckett",     "city": "Phoenix",       "state": "Arizona",    "category": "Pre-Plat"},
@@ -95,7 +94,7 @@ BUILTIN_PROPERTIES = [
     {"name": "Heartland 255",              "city": "Arizona",       "state": "Arizona",    "category": "Site Maintenance"},
     {"name": "Heartland 81",               "city": "Arizona",       "state": "Arizona",    "category": "Site Maintenance"},
     {"name": "Walker Butte 1200",          "city": "Coolidge",      "state": "Arizona",    "category": "Site Maintenance"},
-    # ── California ────────────────────────────────────────────────
+    # ΓöÇΓöÇ California ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     {"name": "Cabazon",                    "city": "Cabazon",       "state": "California", "category": "Acquisition"},
     {"name": "Banning",                    "city": "Banning",       "state": "California", "category": "Rezone"},
     {"name": "Affresco East",              "city": "California",    "state": "California", "category": "Pre-Plat"},
@@ -116,12 +115,12 @@ BUILTIN_PROPERTIES = [
     {"name": "Bell Mountain 49",           "city": "California",    "state": "California", "category": "Site Maintenance"},
     {"name": "Panther & Crippin",          "city": "California",    "state": "California", "category": "Site Maintenance"},
     {"name": "Silverlakes",                "city": "Helendale",     "state": "California", "category": "Site Maintenance"},
-    # ── New Mexico ────────────────────────────────────────────────
+    # ΓöÇΓöÇ New Mexico ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     {"name": "Mesa Del Sol",               "city": "Albuquerque",   "state": "New Mexico", "category": "Acquisition"},
     {"name": "Los Senderos",               "city": "New Mexico",    "state": "New Mexico", "category": "Acquisition"},
-    # ── Colorado ──────────────────────────────────────────────────
+    # ΓöÇΓöÇ Colorado ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     {"name": "Mead (WCR 34 & Hwy 25)",     "city": "Mead",          "state": "Colorado",   "category": "Pre-Plat"},
-    # ── Texas ─────────────────────────────────────────────────────
+    # ΓöÇΓöÇ Texas ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     {"name": "Long Branch (Wilson 155)",   "city": "Texas",         "state": "Texas",      "category": "Rezone"},
     {"name": "Pacific & Pinson - Forney",  "city": "Forney",        "state": "Texas",      "category": "Pre-Plat"},
     {"name": "Horseshoe Bay Lots",         "city": "Horseshoe Bay", "state": "Texas",      "category": "Site Maintenance"},
@@ -144,6 +143,8 @@ CATEGORY_KEYWORDS = {
 # Broader market keywords for the city-level news query
 MARKET_KEYWORDS = "land market new homes permits subdivision development real estate"
 
+SEARCH_YEAR = 2026
+
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -154,9 +155,9 @@ HEADERS = {
 }
 
 
-# ══════════════════════════════════════════════════════════════════
+# ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 # File Detection & Parsing
-# ══════════════════════════════════════════════════════════════════
+# ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 
 def find_project_file() -> Path | None:
     PROJECT_MASTER_DIR.mkdir(parents=True, exist_ok=True)
@@ -294,7 +295,7 @@ def _parse_pdf_text(path: Path) -> tuple[list[dict], set]:
                 bucket = round(w["top"] / 5) * 5
                 word_rows.setdefault(bucket, []).append(w)
 
-            # Build a map: name → is_struck
+            # Build a map: name ΓåÆ is_struck
             struck_names = set()
             for bucket, row_words in word_rows.items():
                 name_words = [w for w in row_words if w["x0"] < page.width * 0.35]
@@ -324,7 +325,7 @@ def _parse_pdf_text(path: Path) -> tuple[list[dict], set]:
 
                 # Check if this name was struck through
                 if name in struck_names or any(name in sn or sn in name for sn in struck_names):
-                    log.info(f"  ✗ Skipped (struck-through): {name}")
+                    log.info(f"  ✓ Skipped (struck-through): {name}")
                     skipped.add(name)
                     seen.add(name)
                     continue
@@ -481,7 +482,7 @@ def _parse_pdf_ocr(path: Path) -> list[dict]:
     if skipped:
         log.info(f"Skipped {len(skipped)} struck-through (inactive) rows:")
         for s in skipped:
-            log.info(f"  ✗ {s}")
+            log.info(f"  ✓ {s}")
 
     # Build set of matched known names that were skipped (for gap-fill filtering)
     skipped_known = set()
@@ -573,9 +574,9 @@ def load_properties() -> tuple[list[dict], str]:
         raise ValueError(f"Failed to parse {file.name}: {e}") from e
 
 
-# ══════════════════════════════════════════════════════════════════
+# ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 # Helpers
-# ══════════════════════════════════════════════════════════════════
+# ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 
 
 
@@ -665,22 +666,13 @@ def content_hash(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 def chunk_text(text: str) -> list[str]:
-    chunks, start = [], 0
-    while start < len(text):
-        chunks.append(text[start:start + CHUNK_SIZE])
-        start += CHUNK_SIZE - CHUNK_OVERLAP
-    return chunks
+    from ingestion.chunker import chunk_text as _chunk_text
+    return _chunk_text(text)
 
 def simple_embed(text: str) -> list[float]:
-    seed = hashlib.sha256(text.encode()).digest()
-    floats = []
-    for i in range(384):
-        b = seed[(i * 2) % len(seed):(i * 2) % len(seed) + 4]
-        if len(b) < 4:
-            b = b + seed[:4 - len(b)]
-        val = struct.unpack("f", b)[0]
-        floats.append(max(-1.0, min(1.0, val / 1e10)))
-    return floats
+    from ingestion.embedder import LocalHashEmbedding
+    result = LocalHashEmbedding()([text])[0]
+    return result.tolist() if hasattr(result, "tolist") else list(result)
 
 def fetch_page(url: str) -> BeautifulSoup | None:
     try:
@@ -709,17 +701,13 @@ def extract_text(soup: BeautifulSoup, selectors: list[str]) -> str:
     return " ".join(" ".join(t.get_text(separator=" ", strip=True).split()) for t in tags)
 
 
-# ══════════════════════════════════════════════════════════════════
+# ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 # ChromaDB
-# ══════════════════════════════════════════════════════════════════
+# ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 
 def get_collection():
-    import chromadb
-    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-    return client.get_or_create_collection(
-        name=CHROMA_COLLECTION_NAME,
-        metadata={"hnsw:space": "cosine"},
-    )
+    from ingestion.embedder import get_collection as _get_collection
+    return _get_collection()
 
 def store_chunks(label, url, chunks, name, category, state, source_type, collection):
     ts = datetime.now().isoformat()
@@ -742,9 +730,9 @@ def store_chunks(label, url, chunks, name, category, state, source_type, collect
     collection.upsert(ids=ids, documents=docs, metadatas=metas, embeddings=embeds)
 
 
-# ══════════════════════════════════════════════════════════════════
+# ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 # Search URL Builders
-# ══════════════════════════════════════════════════════════════════
+# ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 
 def build_property_news_url(prop: dict) -> str:
     """Targeted news search: property name + location + category keywords."""
@@ -767,32 +755,32 @@ def build_city_data_url(prop: dict) -> str:
 
 def build_zoning_news_url(prop: dict) -> str:
     """Zoning and planning commission news — entitlement decisions near the property."""
-    q = f'{prop["city"]} {prop["state"]} planning commission zoning rezoning entitlement 2026'
+    q = f'{prop["city"]} {prop["state"]} planning commission zoning rezoning entitlement {SEARCH_YEAR}'
     return f"https://news.google.com/search?q={quote_plus(q)}&hl=en-US&gl=US&ceid=US:en"
 
 def build_competitor_news_url(prop: dict) -> str:
     """Homebuilder and competitor activity in the same market."""
-    q = f'{prop["city"]} {prop["state"]} homebuilder subdivision land purchase DR Horton Lennar Taylor Morrison 2026'
+    q = f'{prop["city"]} {prop["state"]} homebuilder subdivision land purchase DR Horton Lennar Taylor Morrison {SEARCH_YEAR}'
     return f"https://news.google.com/search?q={quote_plus(q)}&hl=en-US&gl=US&ceid=US:en"
 
 def build_economic_news_url(prop: dict) -> str:
     """Economic development and job growth — drives residential land demand."""
-    q = f'{prop["city"]} {prop["state"]} jobs employer economic development population growth 2026'
+    q = f'{prop["city"]} {prop["state"]} jobs employer economic development population growth {SEARCH_YEAR}'
     return f"https://news.google.com/search?q={quote_plus(q)}&hl=en-US&gl=US&ceid=US:en"
 
 def build_permit_news_url(prop: dict) -> str:
     """Building permit and construction activity near the property."""
-    q = f'{prop["city"]} {prop["state"]} building permits construction new homes residential 2026'
+    q = f'{prop["city"]} {prop["state"]} building permits construction new homes residential {SEARCH_YEAR}'
     return f"https://news.google.com/search?q={quote_plus(q)}&hl=en-US&gl=US&ceid=US:en"
 
 def build_infrastructure_news_url(prop: dict) -> str:
     """Roads, utilities, and infrastructure projects near the property."""
-    q = f'{prop["city"]} {prop["state"]} infrastructure roads utilities water sewer development 2026'
+    q = f'{prop["city"]} {prop["state"]} infrastructure roads utilities water sewer development {SEARCH_YEAR}'
     return f"https://news.google.com/search?q={quote_plus(q)}&hl=en-US&gl=US&ceid=US:en"
 
 def build_school_news_url(prop: dict) -> str:
     """School district news and ratings — affects residential demand."""
-    q = f'{prop["city"]} {prop["state"]} school district rating growth new school 2026'
+    q = f'{prop["city"]} {prop["state"]} school district rating growth new school {SEARCH_YEAR}'
     return f"https://news.google.com/search?q={quote_plus(q)}&hl=en-US&gl=US&ceid=US:en"
 
 def build_niche_url(prop: dict) -> str:
@@ -804,9 +792,9 @@ def build_niche_url(prop: dict) -> str:
     return f"https://www.niche.com/places-to-live/{city}-{state}/"
 
 
-# ══════════════════════════════════════════════════════════════════
+# ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 # Core Fetch + Store
-# ══════════════════════════════════════════════════════════════════
+# ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 
 def _try_source(
     key: str,
@@ -838,17 +826,17 @@ def _try_source(
                  prop["name"], prop["category"], prop["state"],
                  source_type, collection)
     registry[key] = {"last_hash": h, "last_scraped": datetime.now().isoformat()}
-    log.info(f"  ✓ {label}: {len(chunks)} chunks stored")
+    log.info(f"  Γ£ô {label}: {len(chunks)} chunks stored")
     return True
 
 
-# ══════════════════════════════════════════════════════════════════
+# ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 # Scrape One Property — 10 sources
-# ══════════════════════════════════════════════════════════════════
+# ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 
 def scrape_property(prop: dict, collection, registry: dict) -> dict:
     name = prop["name"]
-    log.info(f"── {name} ({prop['category']}, {prop['state']})")
+    log.info(f"ΓöÇΓöÇ {name} ({prop['category']}, {prop['state']})")
 
     results = {
         "property_news":    False,
@@ -895,9 +883,9 @@ def scrape_property(prop: dict, collection, registry: dict) -> dict:
     return results
 
 
-# ══════════════════════════════════════════════════════════════════
+# ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 # Public API
-# ══════════════════════════════════════════════════════════════════
+# ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 
 def scrape_all_properties(target_name: str | None = None):
     """Scrape all properties (or one by name) including sold ones."""
@@ -957,10 +945,10 @@ def list_properties():
         return
 
     total = len(active) + len(sold)
-    print(f"\n{'─' * 60}")
+    print(f"\n{'ΓöÇ' * 60}")
     print(f"  Vaulter AI Project Master — {total} properties total")
     print(f"  Active: {len(active)}  |  Sold: {len(sold)}")
-    print(f"{'─' * 60}")
+    print(f"{'ΓöÇ' * 60}")
 
     # Active properties grouped by category
     by_category = {}
@@ -970,12 +958,12 @@ def list_properties():
     for cat, props in sorted(by_category.items()):
         print(f"\n  {cat} ({len(props)})")
         for p in props:
-            print(f"    · {p['name']} — {p['city']}, {p['state']}")
+            print(f"    ┬╖ {p['name']} — {p['city']}, {p['state']}")
 
     # Sold properties at the bottom
     if sold:
         print(f"\n  Sold / Inactive ({len(sold)})")
         for p in sold:
-            print(f"    · {p['name']} — {p.get('city', '?')}, {p.get('state', '?')} [SOLD]")
+            print(f"    ┬╖ {p['name']} — {p.get('city', '?')}, {p.get('state', '?')} [SOLD]")
 
     print()

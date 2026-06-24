@@ -84,6 +84,15 @@ def get_access_token() -> str:
     return result["access_token"]
 
 
+def run_auth_flow() -> str:
+    """
+    Public entry point called by main.py auth command.
+    Alias for get_access_token() — initiates device code flow,
+    blocks until the user signs in, and saves the token to disk.
+    """
+    return get_access_token()
+
+
 def _save_cache(cache: msal.SerializableTokenCache):
     """Save token cache to disk if it changed."""
     if cache.has_state_changed:

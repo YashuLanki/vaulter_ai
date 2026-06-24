@@ -19,7 +19,6 @@ import json
 import logging
 import re
 import shutil
-import struct
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -30,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
     LOG_DIR, RAW_EMAIL_DIR, DATA_DIR,
     WATCH_DIR, CHROMA_DIR, CHROMA_COLLECTION_NAME,
-    CHUNK_SIZE, CHUNK_OVERLAP, LOG_LEVEL,
+    LOG_LEVEL,
     OUTLOOK_FOLDERS, OUTLOOK_SENDER_WHITELIST, OUTLOOK_LOOKBACK_DAYS,
 )
 from pipeline.outlook_auth import get_access_token
@@ -117,10 +116,74 @@ def get_body(token: str, msg_id: str) -> str:
     body    = data.get("body", {})
     content = body.get("content", "")
     if body.get("contentType", "").lower() == "html":
+        # Strip HTML tags
         content = re.sub(r"<[^>]+>", " ", content)
         content = re.sub(r"&nbsp;", " ", content)
         content = re.sub(r"&amp;", "&", content)
-    return " ".join(content.split())
+        content = re.sub(r"&lt;", "<", content)
+        content = re.sub(r"&gt;", ">", content)
+        content = re.sub(r"&quot;", '"', content)
+    return clean_email_body(" ".join(content.split()))
+
+
+def clean_email_body(text: str) -> str:
+    """
+    Strip signatures, legal disclaimers, and forwarded/replied-to headers
+    from an email body so only the actual message content is stored.
+
+    Removes:
+      - Outlook/Gmail signature blocks (-- / ___ dividers)
+      - Legal disclaimers (confidentiality notices, CAUTION headers)
+      - Forwarded message headers (From: ... Sent: ... To: ... Subject:)
+      - Replied-to quote blocks (lines starting with >)
+      - Excessive whitespace
+    """
+    lines = text.splitlines()
+    cleaned = []
+
+    # Patterns that signal the start of a signature or disclaimer block
+    STOP_PATTERNS = [
+        r"^--\s*$",                                    # -- signature divider
+        r"^_{3,}\s*$",                                 # ___ divider
+        r"^-{3,}\s*$",                                 # --- divider
+        r"^\*{3,}\s*$",                               # *** divider
+        r"(?i)^(CAUTION|DISCLAIMER|CONFIDENTIAL)",      # legal headers
+        r"(?i)this (e-?mail|message) (and any|is (confidential|intended))",
+        r"(?i)if you (have received|are not the intended)",
+        r"(?i)^(From|Sent|To|Cc|Subject):\s+",         # forwarded header block
+        r"(?i)-----\s*original message\s*-----",
+        r"(?i)-----\s*forwarded message\s*-----",
+        r"(?i)^on .{10,} wrote:$",                      # "On Mon, Jan 1 John wrote:"
+        r"(?i)get outlook for",                          # Outlook mobile footer
+        r"(?i)sent from my (iphone|ipad|android|samsung|mobile)",
+    ]
+
+    import re as _re
+    stop_patterns = [_re.compile(p) for p in STOP_PATTERNS]
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Skip quoted reply lines
+        if stripped.startswith(">"):
+            continue
+
+        # Check if this line starts a signature/disclaimer block — stop here
+        if any(pat.search(stripped) for pat in stop_patterns):
+            break
+
+        cleaned.append(line)
+
+    result = "\n".join(cleaned).strip()
+
+    # Collapse runs of blank lines to a single blank line
+    result = _re.sub(r"\n{3,}", "\n\n", result)
+
+    # If cleaning removed too much, fall back to the raw text
+    if len(result) < 30 and len(text) > 30:
+        return text
+
+    return result
 
 def get_attachments(token: str, msg_id: str) -> list[dict]:
     data = graph_get(token, f"/me/messages/{msg_id}/attachments")
@@ -153,36 +216,39 @@ def get_collection():
     return _get_collection()
 
 def simple_embed(text: str) -> list[float]:
-    seed = hashlib.sha256(text.encode()).digest()
-    floats = []
-    for i in range(384):
-        b = seed[(i * 2) % len(seed):(i * 2) % len(seed) + 4]
-        if len(b) < 4:
-            b = b + seed[:4 - len(b)]
-        val = struct.unpack("f", b)[0]
-        floats.append(max(-1.0, min(1.0, val / 1e10)))
-    return floats
+    from ingestion.embedder import LocalHashEmbedding
+    result = LocalHashEmbedding()([text])[0]
+    return result.tolist() if hasattr(result, 'tolist') else list(result)
 
 def chunk_text(text: str) -> list[str]:
-    chunks, start = [], 0
-    while start < len(text):
-        chunks.append(text[start:start + CHUNK_SIZE])
-        start += CHUNK_SIZE - CHUNK_OVERLAP
-    return chunks
+    from ingestion.chunker import chunk_text as _chunk_text
+    return _chunk_text(text)
 
 def store_email(msg_id, subject, sender, date_str, body, collection):
     if len(body) < 50:
         log.info(f"Body too short ({len(body)} chars) — skipping")
         return
+    # Match the email body text to relevant properties
+    from pipeline.property_matcher import match_properties, matched_property_tags, format_matched_properties
+    search_text = f"{subject} {body}"
+    matches     = match_properties(search_text)
+    prop_tags   = matched_property_tags(matches)
+    if matches:
+        log.info(f"  Email matched: {format_matched_properties(matches)}")
+
     chunks = chunk_text(body)
     ids, docs, metas, embeds = [], [], [], []
     for i, chunk in enumerate(chunks):
         ids.append(f"email_{msg_id}_{i}")
         docs.append(chunk)
         metas.append({
-            "source": sender, "subject": subject[:200],
-            "date": date_str, "msg_id": msg_id,
-            "chunk": i, "type": "email",
+            "source":  sender,
+            "subject": subject[:200],
+            "date":    date_str,
+            "msg_id":  msg_id,
+            "chunk":   i,
+            "type":    "email",
+            **prop_tags,
         })
         embeds.append(simple_embed(chunk))
     collection.upsert(ids=ids, documents=docs, metadatas=metas, embeddings=embeds)
@@ -336,9 +402,15 @@ def route_attachment(token, msg_id, att, subject, collection):
                 prop_name  = best.get("name", "").strip()
                 dest_dir   = WATCH_DIR / prop_state / prop_name
             else:
-                dest_dir = WATCH_DIR / "_email_attachments"
+                # No property match — route to processed/general/ so the
+                # open_general_files MCP tool can surface it in claude.ai
+                from config import PROCESSED_DIR
+                dest_dir = PROCESSED_DIR / "general"
+                log.info(f"  PDF attachment unmatched — routed to processed/general/")
         except Exception:
-            dest_dir = WATCH_DIR / "_email_attachments"
+            from config import PROCESSED_DIR
+            dest_dir = PROCESSED_DIR / "general"
+            log.info(f"  PDF attachment routing error — routed to processed/general/")
 
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest_file = dest_dir / f"email_{ts}_{safe_name}"
