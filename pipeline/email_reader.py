@@ -95,13 +95,9 @@ def get_folder_id(token: str, folder_name: str) -> str | None:
     return None
 
 def list_messages(token: str, folder_id: str, lookback_days: int) -> list[dict]:
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).strftime(
-        "%Y-%m-%dT%H:%M:%SZ"
-    )
     params = {
-        "$filter": f"receivedDateTime ge {cutoff}",
         "$select": "id,subject,from,receivedDateTime",
-        "$top": 100,
+        "$top": 50,
         "$orderby": "receivedDateTime desc",
     }
     messages, path = [], f"/me/mailFolders/{folder_id}/messages"
