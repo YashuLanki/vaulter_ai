@@ -34,6 +34,21 @@ log = logging.getLogger("vaulter.screener")
 CALIBRATION_SAMPLE_SIZE = 15   # rows sent to Claude for Stage 0
 DEFAULT_TOP_N           = 30   # finalists forwarded to Stage 4
 
+# ── Vaulter investment thesis ──────────────────────────────────────
+# Injected into Stage 0 calibration and dashboard instructions so
+# all pricing analysis is evaluated through the correct lens.
+INVESTMENT_THESIS = (
+    "Vaulter is an opportunistic and value-add land investment firm focused on "
+    "predevelopment value-add. Pricing must be evaluated from an investor perspective "
+    "expecting a 2.5x-3x MOIC or more — NOT from a user or spec developer perspective. "
+    "A site that looks expensive to an end user may still be a strong buy if the "
+    "acquisition price leaves enough spread to a developer or user exit. Conversely, "
+    "a site priced at or near developer/user comp levels leaves no room for Vaulter to "
+    "create value and should score low. When generating pricing rules and dimensions, "
+    "ask: does the basis allow for a 2.5x-3x return by selling to a developer or user "
+    "after predevelopment work — not whether the price matches current comp transactions."
+)
+
 
 # ══════════════════════════════════════════════════════════════════
 # Utilities — extract rows and parse price/acres
@@ -184,6 +199,9 @@ DIM lines (3-6 dimensions): scoring criteria for survivors.
 IMPORTANT: use the actual submarket names, zoning codes, utility providers, and use types
 you see in these rows. Do not use generic placeholders.
 
+INVESTMENT CONTEXT — apply this when generating any pricing-related rules or dimensions:
+{thesis}
+
 Example output (do not copy — generate from the actual data above):
 FIELDS: flood zone, zoning, submarket, utility provider, proposed land use
 RULE: flood_high >>> 100-year floodplain creates lender resistance and mitigation cost >>> any_present >>> 100-year floodplain, sfha, high risk areas >>>
@@ -296,6 +314,7 @@ def calibrate_pipeline(sample_rows: list[str], api_key: str) -> dict:
     prompt = CALIBRATION_PROMPT.format(
         n=min(len(sample_rows), CALIBRATION_SAMPLE_SIZE),
         sample=sample_text,
+        thesis=INVESTMENT_THESIS,
     )
 
     try:
@@ -570,6 +589,18 @@ def run_pipeline(
 
     log.info(f"[SCREENER] Stage 2: {len(finalists)} finalists, {len(stage2_rejects)} below threshold")
 
+    # ── Assign verdicts across all listings ───────────────────────
+    # Done in Python so Claude renders the dashboard immediately
+    # without needing to analyze every listing individually.
+    for r in finalists:
+        r["verdict"], r["reason"] = _assign_verdict(r, max_score)
+    for r in stage1_rejects:
+        r["verdict"] = "Pass"
+        r["reason"]  = r.get("elimination_reason", "Eliminated by hard rules")
+    for r in stage2_rejects:
+        r["verdict"] = "Pass"
+        r["reason"]  = r.get("elimination_reason", f"Score {r.get('score',0)}/{max_score}")
+
     return {
         "total":              len(rows),
         "calibration":        calibration,
@@ -585,8 +616,46 @@ def run_pipeline(
     }
 
 
+def _assign_verdict(listing: dict, max_score: int) -> tuple[str, str]:
+    """
+    Assign a Pursue / Scrutinize / Pass verdict to a finalist listing
+    based on its score relative to the max possible score.
+
+    Thresholds:
+      >= 65% of max → Pursue
+      >= 35% of max → Scrutinize
+      <  35% of max → Pass
+
+    Returns (verdict, reason_string).
+    """
+    score = listing.get("score", 0)
+    pct   = score / max_score if max_score > 0 else 0
+
+    # Build a short reason from score breakdown + any single flag
+    bd        = listing.get("score_breakdown", {})
+    low_dims  = [k.replace("_", " ") for k, v in bd.items() if v == 0]
+    flag      = listing.get("single_flag", "")
+    reason_parts = [f"Score {score}/{max_score}"]
+    if low_dims:
+        reason_parts.append(f"low on {', '.join(low_dims[:2])}")
+    if flag:
+        reason_parts.append(flag[:80])
+    reason = " — ".join(reason_parts)
+
+    if pct >= 0.65:
+        return "Pursue", reason
+    elif pct >= 0.35:
+        return "Scrutinize", reason
+    else:
+        return "Pass", reason
+
+
 # ══════════════════════════════════════════════════════════════════
 # Format output for Claude — Stages 3, 4, and dashboard
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
+# Format output for Claude — pre-structured data + dashboard render
 # ══════════════════════════════════════════════════════════════════
 
 def format_output(
@@ -596,176 +665,140 @@ def format_output(
     email_intel: str,
 ) -> str:
     """
-    Assemble pipeline results + enrichment into a structured string
-    for Claude to run Stages 3 & 4 and render the dashboard.
+    Assemble pipeline results into a structured string for Claude.
+
+    Verdicts are pre-assigned by Python — Claude renders the React
+    dashboard immediately without writing any analysis first.
+    All listings (finalists + rejects) are included so the dashboard
+    shows the full picture, not just the top 30.
     """
-    SEP  = "═" * 62
-    out  = []
-    ms   = result.get("max_score", 10)
+    import json as _json
+
+    ms    = result.get("max_score", 10)
+    SEP   = "═" * 62
+    out   = []
+    thesis = INVESTMENT_THESIS
 
     # ── Pipeline summary ──────────────────────────────────────────
+    finalists     = result.get("finalists",     [])
+    s1_rejects    = result.get("stage1_rejects", [])
+    s2_rejects    = result.get("stage2_rejects", [])
+    all_listings  = finalists + s1_rejects + s2_rejects
+
+    n_pursue      = sum(1 for l in all_listings if l.get("verdict") == "Pursue")
+    n_scrutinize  = sum(1 for l in all_listings if l.get("verdict") == "Scrutinize")
+    n_pass        = sum(1 for l in all_listings if l.get("verdict") == "Pass")
+
     out.append(SEP)
-    out.append("  PIPELINE SUMMARY")
+    out.append("  PIPELINE COMPLETE — verdicts pre-assigned")
     out.append(SEP)
-    out.append(f"  Total listings       : {result['total']}")
-    out.append(f"  Stage 0              : Calibration complete — rules and dimensions generated")
-    out.append(f"  Stage 1 eliminated   : {result['stage1_eliminated']}  (hard rules, Python, no AI)")
-    out.append(f"  Stage 2 cut          : {result['stage2_eliminated']}  (below score threshold, Python)")
-    out.append(f"  Finalists            : {len(result['finalists'])}  (ready for Stage 4)")
-    if result.get("error"):
-        out.append(f"  ⚠  {result['error']}")
+    out.append(f"  Total listings   : {result['total']}")
+    out.append(f"  Stage 1 cut      : {result['stage1_eliminated']}  (hard rules)")
+    out.append(f"  Stage 2 cut      : {result['stage2_eliminated']}  (below score threshold)")
+    out.append(f"  Pursue           : {n_pursue}")
+    out.append(f"  Scrutinize       : {n_scrutinize}")
+    out.append(f"  Pass             : {n_pass}")
     out.append("")
 
-    # ── Stage 0 calibration summary ───────────────────────────────
-    cal   = result.get("calibration", {})
+    # ── Stage 0 calibration used ──────────────────────────────────
     rules = result.get("hard_rules", [])
     dims  = result.get("scoring_dimensions", [])
-
+    cal   = result.get("calibration", {})
     out.append(SEP)
-    out.append("  STAGE 0 — WHAT CLAUDE FOUND IN THIS FILE")
+    out.append("  STAGE 0 CALIBRATION USED")
     out.append(SEP)
     if cal.get("data_fields_observed"):
-        out.append(f"  Fields present: {', '.join(cal['data_fields_observed'])}\n")
-    out.append(f"  Hard rules generated ({len(rules)}):")
-    for i, r in enumerate(rules, 1):
-        kw_preview = str(r.get("keywords", [])[:3])[1:-1]
-        out.append(f"    {i}. {r.get('description', r.get('id', 'Rule ' + str(i)))}")
-        out.append(f"       type={r.get('match_type','any_present')}  keywords=[{kw_preview}...]")
-    out.append("")
-    out.append(f"  Scoring dimensions generated ({len(dims)}):")
-    for i, d in enumerate(dims, 1):
-        out.append(f"    {i}. {d.get('description', d.get('id', 'Dimension ' + str(i)))}  (0–{d.get('max_points', 2)} pts)")
+        out.append(f"  Fields: {', '.join(cal['data_fields_observed'][:8])}")
+    out.append(f"  Hard rules ({len(rules)}): " +
+               " | ".join(r.get("id", "") for r in rules[:6]))
+    out.append(f"  Score dims ({len(dims)}): " +
+               " | ".join(d.get("id", "") for d in dims[:6]))
     out.append("")
 
-    # ── Finalists ─────────────────────────────────────────────────
-    out.append(SEP)
-    out.append(f"  FINALISTS — {len(result['finalists'])} listings for Stage 4 deep analysis")
-    out.append(SEP)
-    for i, lst in enumerate(result["finalists"], 1):
-        out.append(f"[F{i}]  {lst['address']}")
-        if lst["price"]:
-            out.append(f"  Price   : ${lst['price']:,}" +
-                       (f"  |  ${lst['ppa']:,}/ac" if lst["ppa"] else ""))
-        if lst["acres"]:
-            out.append(f"  Acres   : {lst['acres']}")
-        out.append(f"  Score   : {lst['score']}/{ms}")
-        bd = lst.get("score_breakdown", {})
-        if bd:
-            out.append(f"  Detail  : {' | '.join(f'{k}: {v}' for k, v in bd.items())}")
-        if lst.get("single_flag"):
-            out.append(f"  Note    : {lst['single_flag']}")
-        out.append(f"  Raw     : {lst['raw'][:350]}...")
-        out.append("")
+    # ── Pre-structured listing data (all listings) ─────────────────
+    # Verdicts already assigned — Claude uses this directly for the dashboard.
+    listing_data = []
+    for i, lst in enumerate(all_listings):
+        entry: dict = {
+            "id":        i + 1,
+            "address":   lst.get("address", "Unknown"),
+            "verdict":   lst.get("verdict", "Pass"),
+            "score":     lst.get("score"),
+            "max_score": ms,
+            "stage":     lst.get("stage", ""),
+            "reason":    lst.get("reason", ""),
+            "submarket": lst.get("submarket", ""),
+        }
+        if lst.get("price"):
+            entry["price"] = lst["price"]
+        if lst.get("acres"):
+            entry["acres"] = lst["acres"]
+        if lst.get("ppa"):
+            entry["ppa"] = lst["ppa"]
+        listing_data.append(entry)
 
-    # ── Stage 1 rejects ───────────────────────────────────────────
     out.append(SEP)
-    out.append(f"  STAGE 1 REJECTS — {len(result['stage1_rejects'])} listings  (Stage 3 safety net review)")
+    out.append(f"  ALL LISTINGS — {len(listing_data)} total (pre-assigned verdicts)")
     out.append(SEP)
-    for i, lst in enumerate(result["stage1_rejects"], 1):
-        out.append(f"[R1-{i}]  {lst['address']}")
-        out.append(f"  Flags : {lst['elimination_reason']}")
-        if lst["price"]: out.append(f"  Price : ${lst['price']:,}")
-        if lst["acres"]: out.append(f"  Acres : {lst['acres']}")
-        out.append(f"  Raw   : {lst['raw'][:200]}...")
-        out.append("")
+    out.append(_json.dumps(listing_data, indent=2))
+    out.append("")
 
-    # ── Stage 2 rejects ───────────────────────────────────────────
-    cap = 25
+    # ── Portfolio context (brief) ─────────────────────────────────
     out.append(SEP)
-    out.append(f"  STAGE 2 REJECTS — {len(result['stage2_rejects'])} listings  (Stage 3 safety net review)")
-    out.append(SEP)
-    for i, lst in enumerate(result["stage2_rejects"][:cap], 1):
-        out.append(f"[R2-{i}]  {lst['address']}  — Score {lst['score']}/{ms}")
-        if lst["price"]: out.append(f"  Price : ${lst['price']:,}")
-        if lst["acres"]: out.append(f"  Acres : {lst['acres']}")
-        out.append("")
-    if len(result["stage2_rejects"]) > cap:
-        out.append(f"  ... {len(result['stage2_rejects']) - cap} more (all visible on dashboard)\n")
-
-    # ── Portfolio ─────────────────────────────────────────────────
-    out.append(SEP)
-    out.append(f"  VAULTER PORTFOLIO ({len(portfolio)} active properties)")
+    out.append(f"  PORTFOLIO CONTEXT — {len(portfolio)} active properties")
     out.append(SEP)
     by_state: dict = {}
     for p in portfolio:
-        by_state.setdefault(p.get("state", "Unknown"), []).append(p)
-    for state in sorted(by_state):
-        out.append(f"  {state}:")
-        for p in by_state[state]:
-            out.append(f"    {p['name']:<32} | {p.get('category',''):<18} | {p.get('city','')}")
+        by_state.setdefault(p.get("state", "?"), []).append(p.get("city", ""))
+    for state, cities in sorted(by_state.items()):
+        out.append(f"  {state}: {', '.join(set(c for c in cities if c))[:120]}")
     out.append("")
 
-    # ── Market intelligence ───────────────────────────────────────
-    out.append(SEP)
-    out.append("  MARKET INTELLIGENCE")
-    out.append(SEP)
-    out.append((web_intel or "No market data — run 'python main.py scrape' to populate.")[:3500])
-    out.append("")
-
-    # ── Email signals ─────────────────────────────────────────────
-    if email_intel:
+    # ── Market intelligence (brief) ───────────────────────────────
+    if web_intel:
         out.append(SEP)
-        out.append("  BROKER EMAIL SIGNALS")
+        out.append("  MARKET INTELLIGENCE (for hover/expand detail)")
         out.append(SEP)
-        out.append(email_intel[:2000])
+        out.append(web_intel[:1500])
         out.append("")
 
-    # ── Instructions for Claude ───────────────────────────────────
+    # ── Dashboard render instructions ────────────────────────────
     out.append(SEP)
-    out.append("  INSTRUCTIONS — STAGES 3 & 4")
+    out.append("  DASHBOARD INSTRUCTIONS")
     out.append(SEP)
     out.append(f"""
-STAGE 3 — SAFETY NET  (quick pass, do this first)
-──────────────────────────────────────────────────
-Scan all Stage 1 and Stage 2 rejects above.
-For each one ask: was it wrongly eliminated by the automated rules?
+Render a React artifact immediately. Do not write any text analysis, summary,
+or description before or after the artifact. The verdicts are already assigned
+in the JSON data above — use them directly, no further analysis needed.
 
-Look specifically for:
-  • Flood risk only on a small corner — the main buildable area is clean
-  • Zoning mismatch flagged but there is a clear rezoning precedent nearby
-    or the jurisdiction has a track record of approvals for this conversion
-  • Low score but the listing sits adjacent to an existing Vaulter property
-    (check the portfolio above — same city or submarket = flag it)
-  • Low score on pricing but market intelligence above shows this submarket
-    trending up — worth a closer look before discarding
+INVESTMENT CONTEXT — apply this lens to all pricing evaluation:
+{thesis}
 
-Mark any rescue as RESCUED with a one-line reason.
-If nothing stands out, note "no rescues" and move on.
+DASHBOARD LAYOUT:
+  • Summary bar at the top: three stat chips showing
+      Pursue ({n_pursue})  |  Scrutinize ({n_scrutinize})  |  Pass ({n_pass})
+  • Three accordion sections below: Pursue, Scrutinize, Pass
+  • Each section header shows the count and is clickable to expand/collapse
+  • Sections start collapsed by default
 
+PURSUE section (green):
+  Each card shows: address, score/{ms}, submarket, price/acre if available
+  No reason needed — these are the ones to act on
 
-STAGE 4 — DEEP ANALYSIS  (all finalists + any rescued listings)
-────────────────────────────────────────────────────────────────
-For each listing use the portfolio, market intel, and email signals above.
-Produce:
+SCRUTINIZE section (amber):
+  Each card shows: address, score/{ms}, reason (from the "reason" field)
+  Reason tells the team what to look into before committing
 
-  LISTING: [address]
-  SCORE: [n/{ms}]
-  QUICK FILTER:
-    ✓/✗  Price/acre rational vs submarket comps
-    ✓/✗  Flood risk manageable (not unfixable)
-    ✓/✗  Viable zoning path for intended use
-    ✓/✗  Infrastructure buildable at reasonable cost
-  SIGNALS:
-    • [only signals supported by the data above]
-    • [note any Vaulter portfolio adjacency or submarket overlap]
-  VERDICT: Pursue | Scrutinize | Pass
-  ONE-LINE TAKE: [direct recommendation]
+PASS section (gray):
+  Each card shows: address only — no reason needed, these are out
 
-
-DASHBOARD OUTPUT  (render as React artifact after Stages 3 & 4)
-────────────────────────────────────────────────────────────────
-Requirements:
-  • Header: counts by verdict  (Pursue N  |  Scrutinize N  |  Pass N  |  Rescued N)
-  • Filter tabs: All | Pursue | Scrutinize | Pass | Rescued
-  • Compact card per listing — visible all at once, minimal scrolling
-  • Card shows: address, verdict badge, score/{ms}, one or two key signal tags
-  • Click to expand: signals, quick filter checklist ✓/✗, one-line take
-  • Sort controls: by verdict · by score · by price per acre
-  • ALL listings including Stage 1/2 rejects visible in Pass tab
-    with "Auto-eliminated" badge and the specific rules that triggered
-  • Calibration card: show what Stage 0 generated — fields observed,
-    rules used, dimensions used — so the team can audit the pipeline
-  • Dark navy / teal palette (Vaulter branding)
+STYLING:
+  • Dark navy background (#1A2456) for the page
+  • Green (#15803D / light green bg) for Pursue
+  • Amber (#D97706 / light amber bg) for Scrutinize
+  • Gray (#64748B / light gray bg) for Pass
+  • Clean, compact cards — all listings visible without scrolling inside each section
+  • Use useState for accordion open/close state
 """)
 
     return "\n".join(out)
