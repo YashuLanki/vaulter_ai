@@ -636,20 +636,19 @@ def run_mcp_server(port: int = 8765):
     Start background services then launch the MCP server.
     This is the single command that runs everything.
     """
-    # ── Start PDF watcher in background ──────────────────────────
+    # ── Start MCP server first (main thread) ─────────────────────
+    # Must start immediately — Claude Desktop times out if stdio handshake
+    # is delayed. Background services start after MCP is ready.
+    log.info("[MCP] Starting Vaulter AI MCP server...")
+    mcp = create_mcp_server()
+
+    # ── Start background services after MCP is created ────────────
     watcher_thread = threading.Thread(target=_start_watcher, daemon=True)
     watcher_thread.start()
 
-    # ── Start scheduler in background ─────────────────────────────
     scheduler_thread = threading.Thread(target=_start_scheduler, daemon=True)
     scheduler_thread.start()
 
-    # Give background threads a moment to initialize
-    time.sleep(2)
-
-    # ── Start MCP server (main thread) ────────────────────────────
-    log.info("[MCP] Starting Vaulter AI MCP server...")
-    mcp = create_mcp_server()
     mcp.run(transport="stdio")
 
 
