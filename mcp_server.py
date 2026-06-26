@@ -63,11 +63,13 @@ def _start_scheduler():
                     scrape_all(target_name=name)
                 except Exception as ex:
                     log.warning(f"[SCHEDULER] Scrape failed ({name}): {ex}")
+                    # Never let a scrape error crash the MCP server
+                    return
             scheduler.add_job(
                 _scrape,
                 trigger=IntervalTrigger(hours=source["frequency_hours"]),
                 id=f"scrape_{source['name'].replace(' ', '_')}",
-                next_run_time=_dt.now() + __import__('datetime').timedelta(seconds=30),
+                next_run_time=_dt.now() + __import__('datetime').timedelta(seconds=60),
                 replace_existing=True,
             )
 
@@ -78,12 +80,13 @@ def _start_scheduler():
                 process_all_emails()
             except Exception as ex:
                 log.warning(f"[SCHEDULER] Email check failed: {ex}")
+                return
 
         scheduler.add_job(
             _email,
             trigger=IntervalTrigger(minutes=30),
             id="check_email",
-            next_run_time=_dt.now() + __import__('datetime').timedelta(seconds=30),
+            next_run_time=_dt.now() + __import__('datetime').timedelta(seconds=60),
             replace_existing=True,
         )
 
@@ -94,6 +97,7 @@ def _start_scheduler():
                 scrape_all_properties()
             except Exception as ex:
                 log.warning(f"[SCHEDULER] Property scrape failed: {ex}")
+                return
         scheduler.add_job(
             _property_scrape,
             trigger=CronTrigger(hour=6, minute=0),
@@ -110,6 +114,9 @@ def _start_scheduler():
 
     except Exception as e:
         log.warning(f"[SCHEDULER] Could not start: {e}")
+        # Log to stderr so Claude Desktop can see it
+        import sys
+        print(f"[SCHEDULER] Fatal error: {e}", file=sys.stderr)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -636,19 +643,28 @@ def run_mcp_server(port: int = 8765):
     Start background services then launch the MCP server.
     This is the single command that runs everything.
     """
-    # ── Start MCP server first (main thread) ─────────────────────
-    # Must start immediately — Claude Desktop times out if stdio handshake
-    # is delayed. Background services start after MCP is ready.
-    log.info("[MCP] Starting Vaulter AI MCP server...")
-    mcp = create_mcp_server()
+    # ── Start background services ─────────────────────────────────
+    def _safe_watcher():
+        try:
+            _start_watcher()
+        except Exception as e:
+            log.warning(f"[WATCHER] Fatal error: {e}")
 
-    # ── Start background services after MCP is created ────────────
-    watcher_thread = threading.Thread(target=_start_watcher, daemon=True)
+    def _safe_scheduler():
+        try:
+            _start_scheduler()
+        except Exception as e:
+            log.warning(f"[SCHEDULER] Fatal error: {e}")
+
+    watcher_thread = threading.Thread(target=_safe_watcher, daemon=True)
     watcher_thread.start()
 
-    scheduler_thread = threading.Thread(target=_start_scheduler, daemon=True)
+    scheduler_thread = threading.Thread(target=_safe_scheduler, daemon=True)
     scheduler_thread.start()
 
+    # ── Start MCP server (main thread) ────────────────────────────
+    log.info("[MCP] Starting Vaulter AI MCP server...")
+    mcp = create_mcp_server()
     mcp.run(transport="stdio")
 
 
