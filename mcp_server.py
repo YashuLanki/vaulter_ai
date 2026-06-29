@@ -45,15 +45,34 @@ def _start_watcher():
 
 
 def _start_scheduler():
-    """Start the background scheduler in a background thread."""
+    """
+    Start the background scheduler in a background thread.
+
+    This function MUST never return or raise — if the scheduler dies,
+    the keepalive loop catches it and sleeps, keeping the thread alive
+    so the MCP server process is never taken down with it.
+    """
+    import datetime as _datetime
+    # Delay all first-run jobs by 5 minutes so the MCP server is fully
+    # initialized before any job fires. The old 60-second delay caused
+    # the first job to fire at the exact same moment as the keepalive
+    # sleep(60), and a job error at that moment killed the thread.
+    FIRST_RUN_DELAY = _datetime.timedelta(minutes=5)
+
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.cron import CronTrigger
         from apscheduler.triggers.interval import IntervalTrigger
-        from datetime import datetime as _dt
         from config import WEB_SOURCES, SCHEDULER_TIMEZONE
 
-        scheduler = BackgroundScheduler(timezone=SCHEDULER_TIMEZONE)
+        scheduler = BackgroundScheduler(
+            timezone=SCHEDULER_TIMEZONE,
+            job_defaults={
+                "coalesce":       True,   # skip missed runs instead of piling up
+                "max_instances":  1,      # never run the same job twice at once
+                "misfire_grace_time": 300,
+            },
+        )
 
         # ── Web scraping — each source on its own frequency ───────
         for source in WEB_SOURCES:
@@ -63,13 +82,11 @@ def _start_scheduler():
                     scrape_all(target_name=name)
                 except Exception as ex:
                     log.warning(f"[SCHEDULER] Scrape failed ({name}): {ex}")
-                    # Never let a scrape error crash the MCP server
-                    return
             scheduler.add_job(
                 _scrape,
                 trigger=IntervalTrigger(hours=source["frequency_hours"]),
                 id=f"scrape_{source['name'].replace(' ', '_')}",
-                next_run_time=_dt.now() + __import__('datetime').timedelta(seconds=60),
+                next_run_time=_datetime.datetime.now() + FIRST_RUN_DELAY,
                 replace_existing=True,
             )
 
@@ -80,13 +97,12 @@ def _start_scheduler():
                 process_all_emails()
             except Exception as ex:
                 log.warning(f"[SCHEDULER] Email check failed: {ex}")
-                return
 
         scheduler.add_job(
             _email,
             trigger=IntervalTrigger(minutes=30),
             id="check_email",
-            next_run_time=_dt.now() + __import__('datetime').timedelta(seconds=60),
+            next_run_time=_datetime.datetime.now() + FIRST_RUN_DELAY,
             replace_existing=True,
         )
 
@@ -97,7 +113,7 @@ def _start_scheduler():
                 scrape_all_properties()
             except Exception as ex:
                 log.warning(f"[SCHEDULER] Property scrape failed: {ex}")
-                return
+
         scheduler.add_job(
             _property_scrape,
             trigger=CronTrigger(hour=6, minute=0),
@@ -108,15 +124,17 @@ def _start_scheduler():
         scheduler.start()
         log.info("[SCHEDULER] Running — emails every 30min, web scrapes per source, property intel daily 6am")
 
-        # Keep thread alive
-        while True:
-            time.sleep(60)
-
     except Exception as e:
-        log.warning(f"[SCHEDULER] Could not start: {e}")
-        # Log to stderr so Claude Desktop can see it
-        import sys
-        print(f"[SCHEDULER] Fatal error: {e}", file=sys.stderr)
+        log.warning(f"[SCHEDULER] Could not start scheduler: {e}")
+
+    # Keepalive loop — runs whether or not the scheduler started.
+    # Wrapped in its own try/except so any unexpected error just logs
+    # and continues; the thread never exits and never kills the MCP process.
+    while True:
+        try:
+            time.sleep(60)
+        except Exception as e:
+            log.warning(f"[SCHEDULER] Keepalive error (continuing): {e}")
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -616,7 +634,7 @@ returns a complete dossier for you to evaluate each property."""
                            (e.g. "Pacific & Pinson - Forney", "Mesa Del Sol")
             radius_miles:  Search radius in miles (default: 5.0)
         """
-        from proximity_tool import run_proximity_search
+        from pipeline.proximity_tool import run_proximity_search
         from config import GOOGLE_PLACES_API_KEY
         from pathlib import Path
 
