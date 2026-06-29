@@ -358,21 +358,21 @@ returns a complete dossier for you to evaluate each property."""
     @mcp.tool()
     def open_property_files(property_name: str) -> str:
         """
-        Open File Explorer to show all actual documents and files for a property.
-        Use this when the user wants to:
-        - see, browse, open, or download files for a property
-        - access the actual PDF, Word, Excel, or PowerPoint documents
-        - view attachments or documents related to a property
-        - click on or open files for a property
+        Open File Explorer directly to the folder for a property, with the first
+        file selected so the user lands right on their files.
+        Use this when the user says ANYTHING like:
+        - "pull it up", "show me", "open it", "where is it", "can you open that"
+        - "open the files for X", "show me the files for X", "pull up X"
+        - "I want to see the documents", "open the folder", "show me what we have"
+        - any casual request to view, access, or open property documents or files
+        When in doubt and a property name is mentioned alongside any open/show/view/pull intent, use this tool.
         Args:
             property_name: Property name (e.g. "Mesa Del Sol", "Magic Ranch 10", "Forney")
         """
         import subprocess
         from config import PROCESSED_DIR
         try:
-            folder = None
             matches = []
-
             if PROCESSED_DIR.exists():
                 for state_dir in PROCESSED_DIR.iterdir():
                     if not state_dir.is_dir():
@@ -383,20 +383,24 @@ returns a complete dossier for you to evaluate each property."""
                         if property_name.lower() in prop_dir.name.lower():
                             matches.append(prop_dir)
 
-            if len(matches) == 1:
-                folder = matches[0]
-            elif len(matches) > 1:
+            if len(matches) > 1:
                 exact = [m for m in matches if m.name.lower() == property_name.lower()]
                 folder = exact[0] if exact else matches[0]
+            elif len(matches) == 1:
+                folder = matches[0]
+            else:
+                folder = None
 
             if folder and folder.exists():
-                subprocess.Popen(f'explorer "{folder}"')
-                files = [f for f in folder.iterdir() if f.is_file()]
+                files = sorted([f for f in folder.iterdir() if f.is_file()])
                 if files:
-                    file_list = "\n".join(f"  - {f.name}" for f in sorted(files))
-                    return f"Opened File Explorer to {folder.name} folder.\n\nFiles available:\n{file_list}"
+                    # /select highlights the first file so user lands right on their files
+                    subprocess.Popen(f'explorer /select,"{files[0]}"')
+                    file_list = "\n".join(f"  - {f.name}" for f in files)
+                    return f"Opened File Explorer to {folder.name}.\n\nFiles:\n{file_list}"
                 else:
-                    return f"Opened File Explorer to {folder.name} folder — no files found yet."
+                    subprocess.Popen(f'explorer "{folder}"')
+                    return f"Opened {folder.name} — no files there yet."
             else:
                 subprocess.Popen(f'explorer "{PROCESSED_DIR}"')
                 return f"No folder found for '{property_name}'. Opened the processed documents folder instead."
@@ -427,25 +431,68 @@ returns a complete dossier for you to evaluate each property."""
         except Exception as e:
             return f"Could not open folder: {e}"
 
+    @mcp.tool()
+    def open_proximity_files(property_name: str = "") -> str:
+        """
+        Open File Explorer to the proximity output folder, with the most recent
+        file for the property selected so the user lands right on their export.
+        Use this when the user says ANYTHING like:
+        - "pull it up", "show me", "open it", "can you open that" — after a proximity export was run
+        - "open the proximity files", "show me the CSV", "pull up the GeoJSON"
+        - "open the export", "where is the proximity output", "show me the results"
+        - any casual request to view or open proximity/Google Places export files
+        When a proximity export was recently run and the user wants to see/open the output, use this tool.
+        Args:
+            property_name: Property name to find matching files (e.g. "Mesa Del Sol")
+        """
+        import subprocess
+        from config import DATA_DIR
+        try:
+            proximity_dir = DATA_DIR / "proximity_output"
+            proximity_dir.mkdir(parents=True, exist_ok=True)
+            all_files = sorted([f for f in proximity_dir.iterdir() if f.is_file()], reverse=True)
+            if not all_files:
+                subprocess.Popen(f'explorer "{proximity_dir}"')
+                return "Opened proximity output folder — no exports yet. Run a Google Places export first."
+
+            # Find files matching this property
+            if property_name:
+                words = [w for w in property_name.lower().split() if len(w) > 3]
+                matching = [f for f in all_files if any(w in f.name.lower() for w in words)]
+            else:
+                matching = all_files
+
+            target = matching[0] if matching else all_files[0]
+            # /select opens the folder with that file highlighted
+            subprocess.Popen(f'explorer /select,"{target}"')
+
+            display = matching if matching else all_files
+            file_list = "\n".join(f"  - {f.name}" for f in display[:10])
+            return f"Opened File Explorer to proximity output — {target.name} selected.\n\nFiles:\n{file_list}"
+        except Exception as e:
+            return f"Could not open proximity folder: {e}"
+
     # ── FOUR-STAGE LISTING SCREENER ───────────────────────────────
 
     @mcp.tool()
-    def screen_listings(source_file: str = "CostarExport.xlsx", top_n: int = 30) -> str:
+    def screen_listings(source_file: str = "CostarExport.xlsx", top_n: int = 10) -> str:
         """
-        Run the four-stage listing screener on a CoStar export or broker spreadsheet.
+        Run the five-stage listing screener on a CoStar export or broker spreadsheet.
 
-        Stage 1 (Python, instant) — eliminates obvious dealbreakers using hard rules:
-          flood zone, zoning mismatch, agricultural outlying, no utility, wrong broker type.
-        Stage 2 (Python, fast)    — scores survivors on submarket, zoning, utility, flood.
-          Takes the top N finalists. No AI used in Stages 1 or 2.
-        Stage 3 (Claude)          — quick reconsideration pass: checks if any reject was
-          wrongly cut (partial flood, hidden entitlement path, portfolio adjacency,
-          rising submarket signal).
-        Stage 4 (Claude)          — full deep analysis on finalists + any Stage 3 rescues.
-          Uses portfolio context, market intelligence, and broker email signals.
-          Outputs a Pursue / Scrutinize / Pass verdict per listing.
-        Dashboard (Claude)        — renders a React artifact with filter tabs, compact
-          cards, expandable detail, sort options, and all rejects visible.
+        Stage 0 (Claude)          — analyzes all columns in the export, dynamically
+          selects the ones with real signal (no hardcoded fields), generates hard
+          rules and scoring dimensions calibrated to this specific dataset.
+        Stage 1 (Python, instant) — eliminates listings hitting 2+ hard rule dealbreakers.
+        Stage 2 (Python, fast)    — scores all survivors, takes up to top_n highest
+          scorers as Pursue finalists. Everyone else becomes Scrutinize for Stage 3.
+        Stage 3 (Claude)          — reviews every Scrutinize and Stage 1 reject for
+          mistakes (hidden entitlement path, portfolio adjacency, rising submarket,
+          false-positive hard rule). Rescues get added to the Pursue list.
+        Stage 4 (Claude)          — full deep analysis on the Pursue list (up to top_n
+          + any Stage 3 rescues). Covers MOIC thesis, zoning, flood, infrastructure,
+          broker credibility, key risk, Google Earth verification prompt.
+        Stage 5 (Claude)          — renders a React dashboard showing ALL listings:
+          Pursue gets full analysis cards, Scrutinize and Pass get address + 2 flags.
 
         Use when asked to:
         - Screen, filter, or analyze listings from a CoStar export
@@ -454,7 +501,7 @@ returns a complete dossier for you to evaluate each property."""
 
         Args:
             source_file: Filename of the CoStar export (default: CostarExport.xlsx)
-            top_n:       Max finalists to pass to Stage 4 (default: 30)
+            top_n:       Max Pursue finalists from Stage 2, before Stage 3 rescues (default: 10)
         """
         try:
             from analysis.screener import run_pipeline, format_output
@@ -521,8 +568,30 @@ returns a complete dossier for you to evaluate each property."""
 
             log.info(f"[MCP] screen_listings: {len(costar_chunks)} chunks for '{source_file}'")
 
+            # ── Extract headers from the source Excel file ────────
+            # Headers let Stage 0 analyze column signal dynamically.
+            # Try the file directly first — ChromaDB chunks don't carry headers.
+            headers: list[str] = []
+            try:
+                import pandas as pd
+                from config import DATA_DIR
+                # Search common locations for the Excel file
+                search_paths = [
+                    DATA_DIR / "general" / source_file,
+                    DATA_DIR / source_file,
+                    DATA_DIR / "processed" / source_file,
+                ]
+                for p in search_paths:
+                    if p.exists():
+                        df_hdr = pd.read_excel(str(p), nrows=0)
+                        headers = list(df_hdr.columns)
+                        log.info(f"[MCP] screen_listings: loaded {len(headers)} headers from {p.name}")
+                        break
+            except Exception as e:
+                log.warning(f"[MCP] Could not read Excel headers: {e} — dynamic column selection will use heuristics")
+
             # ── Stages 0, 1 & 2 — Python pipeline ────────────────
-            result = run_pipeline(costar_chunks, api_key=ANTHROPIC_API_KEY, top_n=top_n)
+            result = run_pipeline(costar_chunks, api_key=ANTHROPIC_API_KEY, top_n=top_n, headers=headers)
 
             if result.get("error") and result["total"] == 0:
                 return (
